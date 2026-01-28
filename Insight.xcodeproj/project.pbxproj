@@ -29,9 +29,22 @@
 		F48F264D2F23EE3000EA571B /* InsightUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InsightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F48F26A62F27EE1200EA571B /* Exceptions for "Insight" folder in "Insight" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F48F26332F23EE2E00EA571B /* Insight */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F48F26362F23EE2E00EA571B /* Insight */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F48F26A62F27EE1200EA571B /* Exceptions for "Insight" folder in "Insight" target */,
+			);
 			path = Insight;
 			sourceTree = "<group>";
 		};
@@ -391,12 +404,21 @@
 		F48F26582F23EE3000EA571B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = InsightIconA;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W646PJF57Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Insight/Info.plist;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Insight needs calendar access to schedule events directly from your notes.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Insight needs the camera to read documents and capture memories.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Insight uses your location to map your knowledge journey.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Insight uses your location to tag memories with the places they happened.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Insight needs to hear you to capture your thoughts.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Insight transcribes your audio locally to create connections.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -422,12 +444,21 @@
 		F48F26592F23EE3000EA571B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = InsightIconA;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = W646PJF57Y;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Insight/Info.plist;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Insight needs calendar access to schedule events directly from your notes.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Insight needs the camera to read documents and capture memories.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Insight uses your location to map your knowledge journey.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Insight uses your location to tag memories with the places they happened.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Insight needs to hear you to capture your thoughts.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Insight transcribes your audio locally to create connections.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

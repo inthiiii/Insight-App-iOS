@@ -1,0 +1,26 @@
+# Xcode
+DerivedData/
+.build/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+
+# Swift Package Manager
+Packages/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Environment files
+.env
+.env.*
+
+# Certificates
+*.p12
+*.cer
+
+# Logs
+*.log
