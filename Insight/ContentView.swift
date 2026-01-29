@@ -8,6 +8,7 @@ enum AppTab {
     case library
     case neural
     case ara
+    case studio // <--- NEW
 }
 
 struct ContentView: View {
@@ -17,7 +18,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                FluidBackground() // Your background component
+                FluidBackground()
                 
                 // --- MAIN CONTENT SWITCHER ---
                 VStack(spacing: 0) {
@@ -30,12 +31,13 @@ struct ContentView: View {
                         LibraryView().transition(.opacity)
                     case .neural:
                         NeuralWebView().transition(.opacity)
+                    case .studio:
+                        StudioView().transition(.opacity) // <--- NEW
                     }
                     
-                    // Spacer ensures content doesn't get hidden behind the dock
                     Spacer(minLength: 0)
                 }
-                .padding(.bottom, isKeyboardVisible ? 0 : 90) // Dynamic space for dock
+                .padding(.bottom, isKeyboardVisible ? 0 : 90)
                 
                 // --- THE LIQUID DOCK ---
                 if !isKeyboardVisible {
@@ -47,7 +49,7 @@ struct ContentView: View {
                     }
                 }
             }
-            // Keyboard listeners
+            // Listeners...
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 withAnimation { isKeyboardVisible = true }
             }
@@ -248,15 +250,19 @@ struct HomeView: View {
     }
 }
 
-// LIQUID DOCK & ITEM
+// --- LIQUID DOCK ---
 struct LiquidDock: View {
     @Binding var selectedTab: AppTab
     var body: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: 30) { // Reduced spacing to fit 5 items
+            
+            // 1. HOME
             DockItem(icon: "house.fill", tab: .home, selected: selectedTab) { withAnimation(.spring()) { selectedTab = .home } }
+            
+            // 2. LIBRARY
             DockItem(icon: "square.grid.2x2.fill", tab: .library, selected: selectedTab) { withAnimation(.spring()) { selectedTab = .library } }
             
-            // ARA Special Icon
+            // 3. ARA (Center)
             Button(action: {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 withAnimation(.spring()) { selectedTab = .ara }
@@ -272,20 +278,21 @@ struct LiquidDock: View {
                         Circle().stroke(LinearGradient(colors: [.purple.opacity(0.5), .blue.opacity(0.5)], startPoint: .top, endPoint: .bottom), lineWidth: 2)
                             .frame(width: 40, height: 40)
                     }
-                    Image(systemName: "sparkles")
-                        .font(.title3)
-                        .foregroundStyle(.white)
+                    Image(systemName: "sparkles").font(.title3).foregroundStyle(.white)
                 }
             }
             
+            // 4. STUDIO (New)
+            DockItem(icon: "paintpalette.fill", tab: .studio, selected: selectedTab) { withAnimation(.spring()) { selectedTab = .studio } }
+            
+            // 5. NEURAL
             DockItem(icon: "dot.radiowaves.left.and.right", tab: .neural, selected: selectedTab) { withAnimation(.spring()) { selectedTab = .neural } }
         }
-        .padding(.vertical, 15).padding(.horizontal, 30).background(.ultraThinMaterial).clipShape(Capsule())
+        .padding(.vertical, 15).padding(.horizontal, 25).background(.ultraThinMaterial).clipShape(Capsule())
         .overlay(Capsule().stroke(LinearGradient(colors: [.white.opacity(0.5), .white.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
         .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 10)
     }
 }
-
 struct DockItem: View {
     let icon: String
     let tab: AppTab
