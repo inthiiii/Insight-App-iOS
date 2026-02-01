@@ -6,7 +6,15 @@ enum InsightType: String, Codable {
     case note, audio, image, pdf
 }
 
-// 2. The "Atom"
+// 2. Transcription Word Model (Karaoke Logic)
+struct TranscriptWord: Codable, Identifiable, Equatable {
+    var id = UUID()
+    let text: String
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+}
+
+// 3. The "Atom"
 @Model
 final class InsightItem {
     var id: UUID
@@ -30,7 +38,14 @@ final class InsightItem {
     // Studio Fields
     var canvasX: Double?
     var canvasY: Double?
-    var zoneID: UUID? // <--- New: Belongs to a Zone
+    var zoneID: UUID?
+    
+    // Shield
+    var isLocked: Bool = false
+    
+    // --- ECHO FIELDS (Fixing the Error) ---
+    var transcriptData: Data? // Stores [TranscriptWord] as JSON
+    var waveformSamples: [Float]? // Stores amplitude bars
     
     @Relationship(deleteRule: .cascade)
     var outgoingLinks: [InsightLink]? = []
@@ -40,7 +55,13 @@ final class InsightItem {
         set { typeString = newValue.rawValue }
     }
     
-    init(type: InsightType, content: String, title: String? = nil, category: String? = nil, localFileName: String? = nil, lat: Double? = nil, long: Double? = nil, locLabel: String? = nil, sentiment: Double? = nil, x: Double? = nil, y: Double? = nil) {
+    // Helper to decode words
+    var transcriptWords: [TranscriptWord] {
+        guard let data = transcriptData else { return [] }
+        return (try? JSONDecoder().decode([TranscriptWord].self, from: data)) ?? []
+    }
+    
+    init(type: InsightType, content: String, title: String? = nil, category: String? = nil, localFileName: String? = nil, lat: Double? = nil, long: Double? = nil, locLabel: String? = nil, sentiment: Double? = nil, x: Double? = nil, y: Double? = nil, isLocked: Bool = false, transcriptWords: [TranscriptWord]? = nil, waveformSamples: [Float]? = nil) {
         self.id = UUID()
         self.typeString = type.rawValue
         self.content = content
@@ -51,50 +72,28 @@ final class InsightItem {
         self.latitude = lat; self.longitude = long; self.locationLabel = locLabel
         self.sentimentScore = sentiment
         self.canvasX = x; self.canvasY = y
+        self.isLocked = isLocked
+        
+        // Echo Init
+        if let words = transcriptWords {
+            self.transcriptData = try? JSONEncoder().encode(words)
+        }
+        self.waveformSamples = waveformSamples
+        
         self.outgoingLinks = []
     }
 }
 
-// 3. The "Thread"
-@Model
-final class InsightLink {
-    var reason: String
-    var strength: Double
-    var sourceID: UUID
-    var targetID: UUID
-    
-    init(sourceID: UUID, targetID: UUID, reason: String, strength: Double) {
-        self.sourceID = sourceID; self.targetID = targetID; self.reason = reason; self.strength = strength
-    }
+// Links, Zones, Drawings
+@Model final class InsightLink {
+    var reason: String; var strength: Double; var sourceID: UUID; var targetID: UUID
+    init(sourceID: UUID, targetID: UUID, reason: String, strength: Double) { self.sourceID = sourceID; self.targetID = targetID; self.reason = reason; self.strength = strength }
 }
-
-// 4. The "Zone" (Container) <-- NEW
-@Model
-final class InsightZone {
-    var id: UUID
-    var title: String
-    var x: Double
-    var y: Double
-    var width: Double
-    var height: Double
-    var colorHex: String
-    
-    init(title: String, x: Double, y: Double, width: Double = 300, height: Double = 300, colorHex: String = "0000FF") {
-        self.id = UUID()
-        self.title = title
-        self.x = x; self.y = y; self.width = width; self.height = height
-        self.colorHex = colorHex
-    }
+@Model final class InsightZone {
+    var id: UUID; var title: String; var x: Double; var y: Double; var width: Double; var height: Double; var colorHex: String
+    init(title: String, x: Double, y: Double, width: Double = 300, height: Double = 300, colorHex: String = "0000FF") { self.id = UUID(); self.title = title; self.x = x; self.y = y; self.width = width; self.height = height; self.colorHex = colorHex }
 }
-
-// 5. The "Drawing" (PencilKit) <-- NEW (Single instance per app or per board)
-@Model
-final class InsightDrawing {
-    var id: UUID
-    var data: Data // PKDrawing data
-    
-    init(data: Data) {
-        self.id = UUID()
-        self.data = data
-    }
+@Model final class InsightDrawing {
+    var id: UUID; var data: Data
+    init(data: Data) { self.id = UUID(); self.data = data }
 }

@@ -9,108 +9,153 @@ struct InsightDetailView: View {
     @State private var newCategory = ""
     
     var body: some View {
-        ZStack {
-            Color(hex: "0f172a").ignoresSafeArea()
-            
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    
-                    // 0. HEADER: Title & Category
-                    VStack(alignment: .leading) {
-                        TextField("Add Title...", text: Binding(
-                            get: { item.title ?? "" },
-                            set: { item.title = $0 }
-                        ))
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(.white)
-                        .submitLabel(.done)
+        // --- 1. THE SHIELD WRAPPER ---
+        ShieldView(isLocked: $item.isLocked) {
+            ZStack {
+                Color(hex: "0f172a").ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
                         
-                        HStack {
-                            // Category Tag
-                            Menu {
-                                Button("Work") { item.category = "Work" }
-                                Button("Personal") { item.category = "Personal" }
-                                Button("Vitalis Project") { item.category = "Vitalis Project" }
-                                Button("Ideas") { item.category = "Ideas" }
-                                Divider()
-                                Button("Custom Category...") { showingCategoryAlert = true }
-                                Button("Clear Category", role: .destructive) { item.category = nil }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "tag.fill")
-                                    Text(item.category ?? "No Category")
-                                }
-                                .font(.caption).bold()
-                                .padding(8)
-                                .background(item.category != nil ? .blue : .white.opacity(0.1))
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                            }
+                        // HEADER: Title & Category
+                        VStack(alignment: .leading) {
+                            TextField("Add Title...", text: Binding(
+                                get: { item.title ?? "" },
+                                set: { item.title = $0 }
+                            ))
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.white)
+                            .submitLabel(.done)
                             
-                            // LOCATION TAG (NEW)
-                            if let loc = item.locationLabel {
-                                HStack {
-                                    Image(systemName: "location.fill")
-                                    Text(loc)
+                            HStack {
+                                // Category Tag
+                                Menu {
+                                    Button("Work") { item.category = "Work" }
+                                    Button("Personal") { item.category = "Personal" }
+                                    Button("Vitalis Project") { item.category = "Vitalis Project" }
+                                    Button("Ideas") { item.category = "Ideas" }
+                                    Divider()
+                                    Button("Custom Category...") { showingCategoryAlert = true }
+                                    Button("Clear Category", role: .destructive) { item.category = nil }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "tag.fill")
+                                        Text(item.category ?? "No Category")
+                                    }
+                                    .font(.caption).bold()
+                                    .padding(8)
+                                    .background(item.category != nil ? .blue : .white.opacity(0.1))
+                                    .foregroundStyle(.white)
+                                    .clipShape(Capsule())
                                 }
-                                .font(.caption).bold()
-                                .padding(8)
-                                .background(.white.opacity(0.1))
-                                .foregroundStyle(.white.opacity(0.8))
-                                .clipShape(Capsule())
+                                
+                                // LOCATION TAG
+                                if let loc = item.locationLabel {
+                                    HStack {
+                                        Image(systemName: "location.fill")
+                                        Text(loc)
+                                    }
+                                    .font(.caption).bold()
+                                    .padding(8)
+                                    .background(.white.opacity(0.1))
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        
+                        // 1. IMAGE (Only show if it's an Image type)
+                                            if item.type == .image, let filename = item.localFileName, let img = VisionManager.loadImageFromDisk(filename: filename) {
+                                                Image(uiImage: img)
+                                                    .resizable().scaledToFit().cornerRadius(15).shadow(radius: 10)
+                                                    .frame(maxHeight: 300).frame(maxWidth: .infinity)
+                                            }
+                                            
+                                            // 2. ECHO PLAYER (Audio Type)
+                                            // Fix: Removed fixed frame(height: 400) and extra padding to let it fit naturally
+                                            if item.type == .audio, let filename = item.localFileName {
+                                                let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(filename)
+                                                
+                                                if FileManager.default.fileExists(atPath: fileURL.path) {
+                                                    EchoPlayerView(item: item, audioURL: fileURL)
+                                                        .padding(.vertical, 10) // Small breathing room only
+                                                } else {
+                                                    HStack {
+                                                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                                                        Text("Audio file missing").foregroundStyle(.gray)
+                                                    }
+                                                    .padding()
+                                                    .background(.white.opacity(0.05))
+                                                    .cornerRadius(10)
+                                                }
+                                            }
+                        // Meta
+                        HStack {
+                            Label(item.type.rawValue.capitalized, systemImage: iconFor(type: item.type))
+                                .font(.caption).padding(8).background(.white.opacity(0.1)).clipShape(Capsule())
+                            Text(item.dateCreated.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption).foregroundStyle(.gray)
+                            Spacer()
+                        }
+                        
+                        // Content
+                        Text("Content").font(.headline).foregroundStyle(.white.opacity(0.7))
+                        
+                        TextEditor(text: $item.content)
+                            .scrollContentBackground(.hidden)
+                            .foregroundStyle(.white)
+                            .font(.body)
+                            .frame(minHeight: 150)
+                            .padding()
+                            .background(.white.opacity(0.05))
+                            .cornerRadius(10)
+                        
+                        Divider().background(.gray)
+                        
+                        // Smart Actions
+                        if let date = detectedDate {
+                            smartActionView(date: date)
+                        }
+                        
+                        // Connections
+                        if let links = item.outgoingLinks, !links.isEmpty {
+                            Text("Linked Knowledge").font(.headline).foregroundStyle(.blue)
+                            ForEach(links, id: \.targetID) { link in
+                                LinkDestination(id: link.targetID, linkInfo: link)
                             }
                         }
                     }
-                    
-                    // 1. Image
-                    if let filename = item.localFileName, let img = VisionManager.loadImageFromDisk(filename: filename) {
-                        Image(uiImage: img)
-                            .resizable().scaledToFit().cornerRadius(15).shadow(radius: 10)
-                            .frame(maxHeight: 300).frame(maxWidth: .infinity)
-                    }
-                    
-                    // 2. Meta
-                    HStack {
-                        Label(item.type.rawValue.capitalized, systemImage: iconFor(type: item.type))
-                            .font(.caption).padding(8).background(.white.opacity(0.1)).clipShape(Capsule())
-                        Text(item.dateCreated.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption).foregroundStyle(.gray)
-                        Spacer()
-                    }
-                    
-                    // 3. Content
-                    Text("Content").font(.headline).foregroundStyle(.white.opacity(0.7))
-                    
-                    TextEditor(text: $item.content)
-                        .scrollContentBackground(.hidden)
-                        .foregroundStyle(.white)
-                        .font(.body)
-                        .frame(minHeight: 150)
-                        .padding()
-                        .background(.white.opacity(0.05))
-                        .cornerRadius(10)
-                    
-                    Divider().background(.gray)
-                    
-                    // 4. Smart Actions
-                    if let date = detectedDate {
-                        smartActionView(date: date)
-                    }
-                    
-                    // 5. Connections
-                    if let links = item.outgoingLinks, !links.isEmpty {
-                        Text("Linked Knowledge").font(.headline).foregroundStyle(.blue)
-                        
-                        ForEach(links, id: \.targetID) { link in
-                            LinkDestination(id: link.targetID, linkInfo: link)
-                        }
-                    }
+                    .padding()
                 }
-                .padding()
             }
         }
+        // --- 2. TOOLBAR UPDATES ---
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // LOCK TOGGLE BUTTON
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
+                    if item.isLocked {
+                        // If locked, we can't unlock without Auth (handled by ShieldView tap),
+                        // but if user taps this button on a locked view, trigger auth too.
+                        // However, standard flow is: tap button to LOCK. Tap Shield to UNLOCK.
+                        // So this button mainly serves to LOCK an open note.
+                        // Or if we are already unlocked, we can toggle lock on.
+                        // Let's allow simple toggling for now, assuming user is authenticated if they are viewing this.
+                        withAnimation { item.isLocked = true } // Snap to lock
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    } else {
+                        // Locking is instant
+                        withAnimation { item.isLocked = true }
+                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                    }
+                }) {
+                    Image(systemName: item.isLocked ? "lock.fill" : "lock.open.fill")
+                        .foregroundStyle(item.isLocked ? .red : .blue)
+                }
+            }
+        }
         .alert("New Category", isPresented: $showingCategoryAlert) {
             TextField("Category Name", text: $newCategory)
             Button("Add") { item.category = newCategory; newCategory = "" }
@@ -153,18 +198,14 @@ struct InsightDetailView: View {
     }
 }
 
-// Helper struct for Links
+// Link Destination Helper (Unchanged)
 struct LinkDestination: View {
     let id: UUID
     let linkInfo: InsightLink
     @Query private var items: [InsightItem]
-    
     init(id: UUID, linkInfo: InsightLink) {
-        self.id = id
-        self.linkInfo = linkInfo
-        self._items = Query(filter: #Predicate { $0.id == id })
+        self.id = id; self.linkInfo = linkInfo; self._items = Query(filter: #Predicate { $0.id == id })
     }
-    
     var body: some View {
         if let targetItem = items.first {
             NavigationLink(destination: InsightDetailView(item: targetItem)) {
@@ -172,9 +213,7 @@ struct LinkDestination: View {
                     Image(systemName: "link").foregroundStyle(.blue)
                     VStack(alignment: .leading) {
                         Text(targetItem.title ?? targetItem.content.prefix(30) + "...")
-                            .font(.subheadline).bold().foregroundStyle(.white)
-                            .lineLimit(1)
-                        
+                            .font(.subheadline).bold().foregroundStyle(.white).lineLimit(1)
                         HStack {
                             Text("\(Int(linkInfo.strength * 100))% Match").font(.caption).foregroundStyle(.blue)
                             Text("• " + linkInfo.reason).font(.caption2).foregroundStyle(.gray)

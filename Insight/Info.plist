@@ -48,5 +48,9 @@
     <string>Insight needs calendar access to schedule events.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Insight needs location to tag your notes.</string>
+    
+    <key>NSFaceIDUsageDescription</key>
+    <string>We use Face ID to securely unlock your private notes.</string>
+    
 </dict>
 </plist>

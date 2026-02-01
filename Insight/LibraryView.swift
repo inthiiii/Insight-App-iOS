@@ -153,25 +153,66 @@ struct InsightCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Icon & Selection
             HStack {
-                Image(systemName: iconFor(type: item.type)).foregroundStyle(.white)
+                // If locked, show Lock Icon instead of file type
+                Image(systemName: item.isLocked ? "lock.fill" : iconFor(type: item.type))
+                    .foregroundStyle(item.isLocked ? .red : .white)
+                
                 Spacer()
+                
                 if isSelectionMode {
                     Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(isSelected ? .blue : .gray).font(.title2)
                 }
             }
-            if let title = item.title, !title.isEmpty {
-                Text(title).font(.headline).foregroundStyle(.white).lineLimit(1)
+            
+            // --- STEALTH PREVIEW LOGIC ---
+            if item.isLocked {
+                // LOCKED STATE UI
+                // 1. Show the REAL Title so user knows what it is
+                Text(item.title?.isEmpty == false ? item.title! : "Encrypted Note")
+                    .font(.headline)
+                    .foregroundStyle(.white) // Brighter visibility
+                    .lineLimit(1)
+                
+                // 2. Hide Content
+                Text("Content hidden via biometric shield.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.3))
+                    .italic()
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .blur(radius: 2) // Slight blur for effect
+            } else {
+                // UNLOCKED STATE UI (Normal)
+                if let title = item.title, !title.isEmpty {
+                    Text(title).font(.headline).foregroundStyle(.white).lineLimit(1)
+                }
+                
+                Text(item.content)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text(item.content).font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
+            // -----------------------------
+            
             Spacer()
-            if let loc = item.locationLabel {
+            
+            // Location Badge (Only show if unlocked to prevent leaking location context)
+            if !item.isLocked, let loc = item.locationLabel {
                 HStack(spacing: 4) { Image(systemName: "location.fill").font(.caption2); Text(loc).font(.caption2) }
                 .foregroundStyle(.white.opacity(0.6)).padding(.bottom, 2)
             }
+            
+            // Category & Date
             HStack {
-                if let cat = item.category { Text(cat).font(.caption2).bold().padding(4).background(.blue.opacity(0.5)).cornerRadius(4).foregroundStyle(.white) }
+                // Hide Category if locked (optional privacy), or keep it visible if you prefer:
+                // Currently hiding category if locked to be safe.
+                if let cat = item.category, !item.isLocked {
+                    Text(cat).font(.caption2).bold().padding(4).background(.blue.opacity(0.5)).cornerRadius(4).foregroundStyle(.white)
+                }
                 Spacer()
                 Text(item.dateCreated.formatted(date: .numeric, time: .omitted)).font(.caption2).foregroundStyle(.gray)
             }
@@ -182,10 +223,14 @@ struct InsightCard: View {
         .cornerRadius(15)
         .overlay(
             RoundedRectangle(cornerRadius: 15)
-                .stroke(isSelected ? .blue : (showSentiment ? SentimentManager.shared.colorForScore(item.sentimentScore).opacity(0.6) : .white.opacity(0.1)), lineWidth: isSelected ? 3 : (showSentiment ? 2 : 1))
-                .shadow(color: showSentiment ? SentimentManager.shared.colorForScore(item.sentimentScore).opacity(0.5) : .clear, radius: showSentiment ? 8 : 0)
+                .stroke(
+                    isSelected ? .blue : (showSentiment && !item.isLocked ? SentimentManager.shared.colorForScore(item.sentimentScore).opacity(0.6) : .white.opacity(0.1)),
+                    lineWidth: isSelected ? 3 : (showSentiment ? 2 : 1)
+                )
+                .shadow(color: (showSentiment && !item.isLocked) ? SentimentManager.shared.colorForScore(item.sentimentScore).opacity(0.5) : .clear, radius: showSentiment ? 8 : 0)
         )
     }
+    
     func iconFor(type: InsightType) -> String {
         switch type {
         case .audio: return "mic.fill"; case .image: return "camera.fill"; case .note: return "doc.text.fill"; case .pdf: return "doc.fill"
