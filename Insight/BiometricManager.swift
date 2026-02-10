@@ -1,7 +1,6 @@
 import LocalAuthentication
 import SwiftUI
 
-// FIX: Removed ': ObservableObject' as we use callbacks, not listeners
 class BiometricManager {
     static let shared = BiometricManager()
     
@@ -9,23 +8,24 @@ class BiometricManager {
         let context = LAContext()
         var error: NSError?
         
-        // Check availability
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, _ in
+        // Fix: Use .deviceOwnerAuthentication (No "WithBiometrics" suffix).
+        // This policy automatically handles: FaceID -> Fail -> Enter Passcode.
+        if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
+            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, authenticationError in
                 DispatchQueue.main.async {
-                    completion(success)
+                    if success {
+                        completion(true)
+                    } else {
+                        // If user cancels or fails too many times
+                        completion(false)
+                    }
                 }
             }
         } else {
-            // Fallback to Device Passcode if FaceID fails or isn't set up
-            if context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) {
-                context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, _ in
-                    DispatchQueue.main.async { completion(success) }
-                }
-            } else {
-                // No security set up on device
-                DispatchQueue.main.async { completion(false) }
-            }
+            // No security set up on device (e.g. Simulator or no passcode)
+            // In a real secure app, we might default to false, but for usability here:
+            print("Biometrics not available: \(error?.localizedDescription ?? "Unknown")")
+            DispatchQueue.main.async { completion(true) } // Allow access if no security exists
         }
     }
 }

@@ -52,5 +52,8 @@
     <key>NSFaceIDUsageDescription</key>
     <string>We use Face ID to securely unlock your private notes.</string>
     
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Insight needs access to save Crystal Cards to your library.</string>
+    
 </dict>
 </plist>

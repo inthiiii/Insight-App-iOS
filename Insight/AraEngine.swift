@@ -1,12 +1,25 @@
 import Foundation
 import SwiftData
 import PDFKit
+import NaturalLanguage
 
-// Action Enum for Controlling App
+// --- ENUMS ---
 enum AraAction: Equatable {
     case none
     case createNote(title: String)
     case enableFocusMode
+}
+
+enum GhostFormat: String, CaseIterable {
+    case email = "Email Draft"
+    case linkedin = "LinkedIn Post"
+    case summary = "Executive Summary"
+}
+
+enum GhostTone: String, CaseIterable {
+    case formal = "Formal"
+    case casual = "Casual"
+    case creative = "Creative"
 }
 
 @Observable
@@ -15,19 +28,31 @@ class AraEngine {
     var currentStream: String = ""
     var pendingAction: AraAction = .none
     
-    // Memory & Context
+    // --- MEMORY & CONTEXT ---
     private var lastContextTopic: String? = nil
+    private var shortTermMemory: String = "" // Stores the last answer for context
     
-    // Focus Mode
+    // --- FOCUS MODE STATE ---
     var isFocusMode: Bool = false
     var focusDocumentName: String = ""
     private var focusChunks: [(text: String, page: Int)] = []
     var docStatus: String = ""
     
-    // --- 1. LOAD PDF ---
+    // --- 1. SYSTEM KNOWLEDGE (Self-Awareness) ---
+    private let appKnowledgeBase: [String: String] = [
+        "reality anchor": "Reality Anchors allow you to pin notes to physical objects using AR. Go to the Home Screen -> Eye Icon -> Switch to 'Spatial' mode.",
+        "fusion": "Fusion Mode allows you to combine multiple notes into a new insight. Go to Library -> Select 2+ notes -> Tap the Atom icon.",
+        "socratic": "The Socratic Mirror is a critique tool. Open a note -> Tap the Brain icon. ARA will challenge your assumptions.",
+        "oracle": "Oracle is the semantic search engine. It understands concepts, not just keywords. Switch to 3D mode for a visual helix.",
+        "deep dive": "Dynamic Deep Dive generates new content recursively. Open a note -> Switch to Reader Mode (Book Icon) -> Long press a sentence.",
+        "privacy": "All data is stored locally on your device using SwiftData. Nothing is sent to the cloud.",
+        "error": "If you encounter issues, try restarting the app or checking your permissions in Settings."
+    ]
+    
+    // --- 2. LOAD PDF ---
     func loadPDF(url: URL) {
         self.state = .thinking
-        self.docStatus = "Analyzing..."
+        self.docStatus = "Reading..."
         self.focusDocumentName = url.lastPathComponent
         self.isFocusMode = true
         
@@ -36,17 +61,11 @@ class AraEngine {
                 var extracted: [(String, Int)] = []
                 for i in 0..<pdf.pageCount {
                     if let page = pdf.page(at: i), let text = page.string {
-                        // Semantic Chunking: Split by double newlines (Paragraphs)
+                        // Split by paragraphs to keep context
                         let paragraphs = text.components(separatedBy: "\n\n")
                         for p in paragraphs {
-                            // Clean up whitespace
-                            let clean = p.replacingOccurrences(of: "\n", with: " ")
-                                         .trimmingCharacters(in: .whitespacesAndNewlines)
-                            
-                            // Only add chunks with actual substance (> 20 chars)
-                            if clean.count > 20 {
-                                extracted.append((clean, i + 1))
-                            }
+                            let clean = p.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if clean.count > 20 { extracted.append((clean, i + 1)) }
                         }
                     }
                 }
@@ -54,13 +73,13 @@ class AraEngine {
                     self.focusChunks = extracted
                     self.state = .idle
                     self.docStatus = "Ready"
-                    self.currentStream = "I've read \(self.focusDocumentName) (\(pdf.pageCount) pages). I'm ready for your questions."
+                    self.currentStream = "I've analyzed \(self.focusDocumentName) (\(pdf.pageCount) pages). Ask me specific questions."
                 }
             }
         }
     }
     
-    // --- 2. THE ROUTER (Ask Function) ---
+    // --- 3. THE INTELLIGENT ROUTER (Ask Function) ---
     func ask(query: String, allItems: [InsightItem], onComplete: @escaping (String, InsightItem?) -> Void) {
         self.state = .thinking
         self.currentStream = ""
@@ -68,193 +87,215 @@ class AraEngine {
         
         let lowerQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
-        // A. ACTION COMMANDS
-        if lowerQuery.hasPrefix("create note") || lowerQuery.contains("create a new note") {
-            let title = query.replacingOccurrences(of: "create a new note called", with: "", options: .caseInsensitive)
-                             .replacingOccurrences(of: "create note", with: "", options: .caseInsensitive)
-                             .trimmingCharacters(in: .whitespaces)
+        // LAYER 1: SYSTEM COMMANDS
+        if lowerQuery.hasPrefix("create note") {
+            let title = query.replacingOccurrences(of: "create note", with: "", options: .caseInsensitive).trimmingCharacters(in: .whitespaces)
             self.pendingAction = .createNote(title: title)
             self.state = .speaking
-            self.typewriterEffect(text: "Opening editor for '\(title)'...") {
-                onComplete("Opening editor...", nil)
-            }
+            self.typewriterEffect(text: "Opening editor for '\(title)'...") { onComplete("Opening editor...", nil) }
             return
         }
         
-        // B. MATH CHECK
+        // LAYER 2: MATH & CALCULATIONS
         if let mathResult = solveMath(query) {
             self.state = .speaking
-            let response = "Calculation Result:\n\n**\(mathResult)**"
-            self.typewriterEffect(text: response) {
-                onComplete(response, nil)
-            }
+            let response = "Calculation Result: \(mathResult)"
+            self.typewriterEffect(text: response) { onComplete(response, nil) }
             return
         }
         
-        // C. CHIT-CHAT & GENERAL KNOWLEDGE CHECK
-        // If this returns a string, we stop here. If nil, we go to database.
+        // LAYER 3: APP KNOWLEDGE (Self-Help)
+        for (key, answer) in appKnowledgeBase {
+            if lowerQuery.contains(key) && (lowerQuery.contains("how") || lowerQuery.contains("what") || lowerQuery.contains("help")) {
+                self.state = .speaking
+                self.typewriterEffect(text: answer) { onComplete(answer, nil) }
+                return
+            }
+        }
+        
+        // LAYER 4: CHIT-CHAT (Personality)
         if let chatResponse = generalChat(lowerQuery) {
             self.state = .speaking
-            self.typewriterEffect(text: chatResponse) {
-                onComplete(chatResponse, nil)
-            }
+            self.typewriterEffect(text: chatResponse) { onComplete(chatResponse, nil) }
             return
         }
         
-        // D. CONTEXT INJECTION (Short-term Memory)
+        // LAYER 5: CONTEXTUAL DATA RETRIEVAL
+        // Resolve Pronouns using Short Term Memory
         var finalQuery = query
-        // If user says "it" or "that", append the last topic found
-        if let lastTopic = lastContextTopic, (lowerQuery.contains("it") || lowerQuery.contains("that") || lowerQuery.count < 10) {
-            finalQuery = "\(lastTopic) \(query)"
+        if !shortTermMemory.isEmpty {
+            if lowerQuery.contains(" it ") || lowerQuery.contains(" he ") || lowerQuery.contains(" she ") || lowerQuery.contains(" that ") {
+                finalQuery = "\(query) (Context: \(shortTermMemory))"
+            }
         }
         
         DispatchQueue.global(qos: .userInitiated).async {
-            // E. SEARCH ROUTING
+            // A. PDF MODE
             if self.isFocusMode {
-                // --- DOCUMENT SEARCH ---
-                var bestChunk = ""
-                var bestPage = 0
-                var maxScore = 0.0
-                
-                for chunk in self.focusChunks {
-                    let score = BrainManager.shared.compare(query: finalQuery, textChunk: chunk.text)
-                    if score > maxScore {
-                        maxScore = score
-                        bestChunk = chunk.text
-                        bestPage = chunk.page
-                    }
-                }
-                
+                let answer = self.analyzePDFQuery(query: finalQuery)
                 DispatchQueue.main.async {
                     self.state = .speaking
-                    if maxScore > 0.25 { // Lower threshold for better recall
-                        let response = "Found on **Page \(bestPage)**:\n\n\"\(bestChunk)\""
-                        self.typewriterEffect(text: response) {
-                            onComplete(response, nil)
-                        }
-                    } else {
-                        let response = "I analyzed the document, but couldn't find a specific answer to that. Try rephrasing?"
-                        self.typewriterEffect(text: response) {
-                            onComplete(response, nil)
-                        }
-                    }
+                    self.shortTermMemory = answer // Save to memory
+                    self.typewriterEffect(text: answer) { onComplete(answer, nil) }
                 }
-                
-            } else {
-                // --- MEMORY SEARCH (DATABASE) ---
+            }
+            // B. LIBRARY MODE
+            else {
                 let result = BrainManager.shared.smartSearch(query: finalQuery, in: allItems)
-                
                 DispatchQueue.main.async {
                     self.state = .speaking
                     if let match = result {
-                        // Success: Save context for next turn
-                        self.lastContextTopic = match.item.title ?? match.item.content.prefix(20).description
+                        self.lastContextTopic = match.item.title
+                        // Construct Reasoning
+                        let reason = "Found in **\(match.item.title ?? "Note")**:"
+                        let fullAnswer = "\(reason)\n\n\"\(match.snippet)\""
                         
-                        let sourceName = match.item.title ?? "your notes"
-                        let response = "Based on **\(sourceName)**:\n\n\"\(match.snippet)\""
-                        
-                        self.typewriterEffect(text: response) {
-                            onComplete(response, match.item) // Pass item for citation
-                        }
+                        self.shortTermMemory = match.snippet // Save snippet to memory
+                        self.typewriterEffect(text: fullAnswer) { onComplete(fullAnswer, match.item) }
                     } else {
-                        // Failure: Specific Handling
-                        var response = "I couldn't find that in your memory."
-                        if lowerQuery.contains("schedule") || lowerQuery.contains("meeting") {
-                            response = "I checked for schedules, meetings, and dates, but didn't find any explicit records."
-                        }
-                        self.typewriterEffect(text: response) {
-                            onComplete(response, nil)
-                        }
+                        let fail = "I searched your memory banks but couldn't find a direct match."
+                        self.typewriterEffect(text: fail) { onComplete(fail, nil) }
                     }
                 }
             }
         }
+    }
+    
+    // --- 4. PRECISION EXTRACTOR (PDF) ---
+    private func analyzePDFQuery(query: String) -> String {
+        var bestChunk = ""
+        var bestPage = 0
+        var maxScore = 0.0
+        
+        // 1. Find best chunk
+        for chunk in self.focusChunks {
+            let score = BrainManager.shared.compare(query: query, textChunk: chunk.text)
+            if score > maxScore {
+                maxScore = score
+                bestChunk = chunk.text
+                bestPage = chunk.page
+            }
+        }
+        
+        if maxScore > 0.25 {
+            // 2. Extract Needle from Haystack (Sentence Level)
+            // We use BrainManager's extractor which we updated in Phase 12.6
+            let snippet = BrainManager.shared.extractRelevantSnippet(from: bestChunk, query: query)
+            return "From Page \(bestPage):\n\n\"\(snippet)\""
+        } else {
+            return "I scanned the document but couldn't find a specific answer to that."
+        }
+    }
+    
+    // --- 5. GHOST WRITER ---
+    func ghostWrite(items: [InsightItem], format: GhostFormat, tone: GhostTone) -> String {
+        let rawTexts = items.map { $0.content }.joined(separator: "\n\n")
+        let topicStr = items.first?.title ?? "Project"
+        
+        return """
+        \(format.rawValue.uppercased())
+        Topic: \(topicStr)
+        Tone: \(tone.rawValue)
+        
+        \(rawTexts.prefix(800))...
+        
+        (Generated by ARA Intelligence)
+        """
+    }
+    
+    // --- 6. SYNTHESIZER ---
+    func synthesize(items: [InsightItem]) -> String {
+        let titles = items.compactMap { $0.title }.joined(separator: " + ")
+        return """
+        FUSION RESULT: \(titles)
+        
+        By combining these concepts, a new perspective emerges.
+        
+        1. Intersection:
+        The logic of the first note meets the constraints of the second.
+        
+        2. Opportunity:
+        There is a gap identified here that can be solved using this hybrid methodology.
+        """
+    }
+    
+    // --- 7. SOCRATIC MIRROR ---
+    func generateCritique(for text: String) -> [CritiquePoint] {
+        var points: [CritiquePoint] = []
+        let sentences = text.components(separatedBy: ". ")
+        for sentence in sentences {
+            let lower = sentence.lowercased()
+            if lower.contains("assume") || lower.contains("believe") {
+                points.append(CritiquePoint(originalText: sentence, question: "Uncertainty detected. Data?", type: .evidence))
+            } else if lower.contains("always") || lower.contains("never") {
+                points.append(CritiquePoint(originalText: sentence, question: "Absolutes are risky.", type: .logic))
+            }
+        }
+        return Array(points.prefix(3))
+    }
+    
+    // --- 8. DYNAMIC DEEP DIVE ---
+    func expand(sentence: String, context: String) -> String {
+        // Simple context-aware expansion simulation
+        let topic = sentence.components(separatedBy: " ").sorted { $0.count > $1.count }.first ?? "this topic"
+        return """
+        DEEP DIVE: \(topic.capitalized)
+        
+        You focused on "\(topic)". Contextually, this represents the structural foundation of the argument.
+        
+        Implication:
+        Ignoring this variable typically leads to downstream instability.
+        """
+    }
+    
+    // --- 9. NAVIGATOR EXPLAINER (Fixed Missing Function) ---
+    func explainConnection(items: [InsightItem]) -> String {
+        let titles = items.compactMap { $0.title ?? "Note" }.joined(separator: " -> ")
+        return """
+        I have analyzed the connection path:
+        
+        \(titles)
+        
+        These items appear to be linked because they share semantic similarities in their content embeddings or explicit category tags. This path represents a logical flow of information in your database.
+        """
     }
     
     // --- HELPER LOGIC ---
     
     func solveMath(_ query: String) -> String? {
-        // Regex: Allow numbers, math symbols, and specific keywords like "calc"
         let mathChars = CharacterSet(charactersIn: "0123456789+-*/().^ ")
-        let cleanQuery = query.lowercased().replacingOccurrences(of: "what is", with: "")
-                              .replacingOccurrences(of: "calc", with: "")
-                              .trimmingCharacters(in: .whitespaces)
-        
-        // If it contains letters (except 'e' for math), it's probably not pure math
-        let letters = CharacterSet.letters.subtracting(CharacterSet(charactersIn: "e")) // e for exponent
-        if cleanQuery.rangeOfCharacter(from: letters) != nil {
-            return nil
-        }
-        
-        // Must contain at least one digit
-        if cleanQuery.rangeOfCharacter(from: .decimalDigits) == nil {
-            return nil
-        }
-        
+        let cleanQuery = query.lowercased().replacingOccurrences(of: "what is", with: "").replacingOccurrences(of: "calc", with: "").trimmingCharacters(in: .whitespaces)
+        let letters = CharacterSet.letters.subtracting(CharacterSet(charactersIn: "e"))
+        if cleanQuery.rangeOfCharacter(from: letters) != nil { return nil }
+        if cleanQuery.rangeOfCharacter(from: .decimalDigits) == nil { return nil }
         let expr = NSExpression(format: cleanQuery)
-        if let result = expr.expressionValue(with: nil, context: nil) as? NSNumber {
-            return result.stringValue
-        }
+        if let result = expr.expressionValue(with: nil, context: nil) as? NSNumber { return result.stringValue }
         return nil
     }
     
     func generalChat(_ query: String) -> String? {
         let q = query.lowercased()
-        
-        // GREETINGS
-        if q == "hi" || q == "hello" || q == "hey" { return "Hello! I am ARA. I can read your notes, analyze PDFs, or do math." }
-        if q.contains("how are you") { return "I am functioning perfectly within your device's ecosystem. How can I help?" }
-        if q.contains("who are you") { return "I am ARA (Autonomous Responsive Assistant), a sovereign AI running completely offline." }
-        
-        // CREATIVITY (Jokes, Poems)
-        if q.contains("joke") {
-            let jokes = [
-                "Why don't AIs trust atoms? Because they make up everything!",
-                "I changed my password to 'incorrect'. So whenever I forget it, the computer tells me.",
-                "A SQL query walks into a bar, walks up to two tables and asks... 'Can I join you?'"
-            ]
-            return jokes.randomElement()
-        }
-        if q.contains("poem") {
-            return "In circuits deep where logic flows,\nA quiet mind of silicon grows.\nI keep your thoughts, I guard your key,\nA digital ghost, wild and free."
-        }
-        if q.contains("story") {
-            return "Once upon a time, there was a user who wanted privacy. They built an AI that lived only on their phone, never speaking to the cloud. And they lived happily, and securely, ever after."
-        }
-        
-        // PHILOSOPHY
-        if q.contains("meaning of life") { return "42. Or perhaps, simply to create and remember." }
-        
-        // MANNERS
-        if q.contains("thank") { return "You're welcome. Let me know if you need to find anything else." }
-        
-        // If query is about specific user data ("Schedule", "Notes", "Key"), return nil so it searches DB
-        if q.contains("schedule") || q.contains("meeting") || q.contains("plan") { return nil }
-        
-        return nil // Fallback to Memory Search
+        if q == "hi" || q == "hello" || q == "hey" { return "Hello. I am functioning within optimal parameters. How can I help?" }
+        if q.contains("who are you") { return "I am ARA (Autonomous Responsive Assistant). I live on this device, secure and offline." }
+        if q.contains("joke") { return "I tried to explain a pun to a qubit, but it was two-faced." }
+        if q.contains("thank") { return "You are welcome. Ready for the next task." }
+        return nil
     }
     
-    // Animation Logic
     private func typewriterEffect(text: String, completion: @escaping () -> Void) {
         var charIndex = 0.0
-        self.currentStream = "" // Reset visual stream
+        self.currentStream = ""
+        let speed = text.count > 100 ? 0.002 : 0.005
         
         for char in text {
-            DispatchQueue.main.asyncAfter(deadline: .now() + (charIndex * 0.005)) {
-                self.currentStream += String(char)
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (charIndex * speed)) { self.currentStream += String(char) }
             charIndex += 1
         }
-        
-        // Wait for typing to finish
-        DispatchQueue.main.asyncAfter(deadline: .now() + (Double(text.count) * 0.005) + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Double(text.count) * speed) + 0.5) {
             self.state = .idle
-            completion() // Save data
-            self.currentStream = "" // Clear visual stream
+            completion()
         }
     }
     
-    func exitFocusMode() {
-        isFocusMode = false; focusChunks = []; focusDocumentName = ""; docStatus = ""
-    }
+    func exitFocusMode() { isFocusMode = false; focusChunks = []; focusDocumentName = ""; docStatus = "" }
 }

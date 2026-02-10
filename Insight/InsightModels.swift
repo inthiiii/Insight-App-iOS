@@ -1,20 +1,23 @@
 import SwiftUI
 import SwiftData
 
-// 1. The Types of Data we accept
+// 1. Types
 enum InsightType: String, Codable {
     case note, audio, image, pdf
 }
 
-// 2. Transcription Word Model (Karaoke Logic)
+// 2. Transcription Word
 struct TranscriptWord: Codable, Identifiable, Equatable {
-    var id = UUID()
-    let text: String
-    let startTime: TimeInterval
-    let endTime: TimeInterval
+    var id = UUID(); let text: String; let startTime: TimeInterval; let endTime: TimeInterval
 }
 
-// 3. The "Atom"
+// 3. Critique Model
+struct CritiquePoint: Identifiable {
+    let id = UUID(); let originalText: String; let question: String; let type: CritiqueType
+}
+enum CritiqueType { case logic, evidence, clarity; var color: Color { switch self { case .logic: return .purple; case .evidence: return .orange; case .clarity: return .blue } } }
+
+// 4. The "Atom"
 @Model
 final class InsightItem {
     var id: UUID
@@ -35,7 +38,7 @@ final class InsightItem {
     var locationLabel: String?
     var sentimentScore: Double?
     
-    // Studio Fields
+    // Studio
     var canvasX: Double?
     var canvasY: Double?
     var zoneID: UUID?
@@ -43,9 +46,14 @@ final class InsightItem {
     // Shield
     var isLocked: Bool = false
     
-    // --- ECHO FIELDS (Fixing the Error) ---
-    var transcriptData: Data? // Stores [TranscriptWord] as JSON
-    var waveformSamples: [Float]? // Stores amplitude bars
+    // Echo
+    var transcriptData: Data?
+    var waveformSamples: [Float]?
+    
+    // --- REALITY ANCHORS (Updated) ---
+    var arWorldMapData: Data?
+    var arAnchorTransform: Data?
+    var arNodeScale: Float? // <--- NEW: Persist size
     
     @Relationship(deleteRule: .cascade)
     var outgoingLinks: [InsightLink]? = []
@@ -55,7 +63,6 @@ final class InsightItem {
         set { typeString = newValue.rawValue }
     }
     
-    // Helper to decode words
     var transcriptWords: [TranscriptWord] {
         guard let data = transcriptData else { return [] }
         return (try? JSONDecoder().decode([TranscriptWord].self, from: data)) ?? []
@@ -74,17 +81,13 @@ final class InsightItem {
         self.canvasX = x; self.canvasY = y
         self.isLocked = isLocked
         
-        // Echo Init
-        if let words = transcriptWords {
-            self.transcriptData = try? JSONEncoder().encode(words)
-        }
+        if let words = transcriptWords { self.transcriptData = try? JSONEncoder().encode(words) }
         self.waveformSamples = waveformSamples
-        
         self.outgoingLinks = []
     }
 }
 
-// Links, Zones, Drawings
+// Links, Zones, Drawings (Unchanged)
 @Model final class InsightLink {
     var reason: String; var strength: Double; var sourceID: UUID; var targetID: UUID
     init(sourceID: UUID, targetID: UUID, reason: String, strength: Double) { self.sourceID = sourceID; self.targetID = targetID; self.reason = reason; self.strength = strength }

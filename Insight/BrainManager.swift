@@ -6,7 +6,8 @@ class BrainManager {
     static let shared = BrainManager()
     private let embeddingModel = NLEmbedding.sentenceEmbedding(for: .english)
     
-    // --- 1. PROCESS & LINKING ---
+    // --- 1. PROCESS & LINKING (The Synapse) ---
+    // Called whenever a new note is saved to find connections
     func process(_ newItem: InsightItem, in context: ModelContext, allItems: [InsightItem]) {
         guard let vector = embeddingModel?.vector(for: newItem.content) else { return }
         newItem.embedding = vector.map { Float($0) }
@@ -15,7 +16,10 @@ class BrainManager {
             if existingItem.id == newItem.id { continue }
             guard let existingVector = existingItem.embedding else { continue }
             
+            // Calculate relevance
             let score = cosineSimilarity(vectorA: newItem.embedding!, vectorB: existingVector)
+            
+            // Contextual Threshold: Only link if relevance is > 35%
             if score > 0.35 {
                 createLink(from: newItem, to: existingItem, score: score, context: context)
             }
@@ -28,7 +32,8 @@ class BrainManager {
         let linkA = InsightLink(sourceID: itemA.id, targetID: itemB.id, reason: reason, strength: score)
         let linkB = InsightLink(sourceID: itemB.id, targetID: itemA.id, reason: reason, strength: score)
         
-        context.insert(linkA); context.insert(linkB)
+        context.insert(linkA)
+        context.insert(linkB)
         
         if itemA.outgoingLinks == nil { itemA.outgoingLinks = [] }
         itemA.outgoingLinks?.append(linkA)
@@ -36,7 +41,9 @@ class BrainManager {
         itemB.outgoingLinks?.append(linkB)
     }
     
-    // --- 2. ORACLE SEARCH (Returns a List) ---
+    // --- 2. SEARCH & RETRIEVAL (The Oracle) ---
+    
+    // Returns a sorted list of matches for the List View
     func search(query: String, in items: [InsightItem]) -> [(item: InsightItem, score: Double)] {
         guard let queryVector = embeddingModel?.vector(for: query) else { return [] }
         let queryFloats = queryVector.map { Float($0) }
@@ -47,39 +54,29 @@ class BrainManager {
         for item in items {
             var score = 0.0
             
-            // A. Vector Match
+            // A. Vector Match (Semantic Meaning)
             if let itemVector = item.embedding {
                 score = cosineSimilarity(vectorA: queryFloats, vectorB: itemVector)
             }
             
             // B. Smart Title Boost (The "Alpha" Fix)
             if let title = item.title?.localizedLowercase {
-                // If Title is IN the query (e.g., Query: "About Alpha", Title: "Alpha")
-                if lowerQuery.contains(title) {
-                    score += 0.5 // Massive Boost
-                }
-                // If Query is IN the title (e.g., Query: "Project", Title: "Alpha Project")
-                else if title.contains(lowerQuery) {
-                    score += 0.3
-                }
+                if lowerQuery.contains(title) { score += 0.5 }
+                else if title.contains(lowerQuery) { score += 0.3 }
             }
             
-            // C. Keyword Boost
-            if item.content.localizedLowercase.contains(lowerQuery) {
-                score += 0.1
-            }
+            // C. Keyword Boost (Exact Match)
+            if item.content.localizedLowercase.contains(lowerQuery) { score += 0.1 }
             
-            if score > 0.22 { // Lowered slightly to catch more results
-                results.append((item, score))
-            }
+            // Threshold to filter noise
+            if score > 0.22 { results.append((item, score)) }
         }
         
         return results.sorted { $0.score > $1.score }
     }
     
-    // --- 3. ARA SMART SEARCH (Returns Single Best Match with Snippet) ---
+    // Returns the single best match with a specific snippet (Used by ARA Chat)
     func smartSearch(query: String, in items: [InsightItem]) -> (item: InsightItem, score: Double, snippet: String)? {
-        // Re-use the list logic to get candidates
         let candidates = search(query: query, in: items)
         
         if let best = candidates.first {
@@ -89,54 +86,66 @@ class BrainManager {
         return nil
     }
     
-    // --- 4. HELPERS ---
-    
-    // Extracts the most relevant sentence(s) instead of the whole note
+    // --- 3. INTELLIGENT EXTRACTOR (Needle in Haystack) ---
     func extractRelevantSnippet(from content: String, query: String) -> String {
-        let queryWords = Set(query.localizedLowercase.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 3 })
-        let sentences = content.components(separatedBy: ". ")
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = content
+        
+        let queryWords = query.localizedLowercase.components(separatedBy: .punctuationCharacters).joined().split(separator: " ")
         
         var bestSentence = ""
-        var maxOverlap = 0
+        var maxScore = 0.0
         
-        // Find the sentence with the most keyword overlap
-        for sentence in sentences {
-            let sentenceWords = Set(sentence.localizedLowercase.components(separatedBy: CharacterSet.alphanumerics.inverted))
-            let overlap = queryWords.intersection(sentenceWords).count
+        // Scan sentences to find the one with the most relevant keywords
+        tokenizer.enumerateTokens(in: content.startIndex..<content.endIndex) { range, _ in
+            let sentence = String(content[range])
+            let lowerSentence = sentence.localizedLowercase
             
-            if overlap > maxOverlap {
-                maxOverlap = overlap
+            var score = 0.0
+            // Keyword Density check
+            for word in queryWords {
+                if lowerSentence.contains(word) { score += 1.0 }
+            }
+            
+            // Exact phrase match bonus
+            if lowerSentence.contains(query.localizedLowercase) { score += 5.0 }
+            
+            if score > maxScore {
+                maxScore = score
                 bestSentence = sentence
             }
+            return true
         }
         
-        // If no specific sentence won, or text is short, return start
-        if bestSentence.isEmpty { bestSentence = sentences.first ?? content }
+        // Fallback: If no specific sentence won, return start of note
+        if bestSentence.isEmpty {
+            bestSentence = content.components(separatedBy: ".").first ?? content.prefix(100) + "..."
+        }
         
-        // Truncate if too long
+        // Limit length to keep chat readable
         if bestSentence.count > 300 {
             return String(bestSentence.prefix(300)) + "..."
         }
-        return bestSentence
+        
+        return bestSentence.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    // --- 4. MATH HELPERS (The Engine Room) ---
+    
+    // Helper to compare query vs text chunk (Used by PDF Reader)
     func compare(query: String, textChunk: String) -> Double {
-        // A. Keyword Bonus
+        // Hybrid Score: Vector + Keywords
         let queryWords = query.localizedLowercase.split(separator: " ")
         var keywordScore = 0.0
         let chunkLower = textChunk.localizedLowercase
         
         for word in queryWords {
-            if chunkLower.contains(word) {
-                keywordScore += 0.2 // Boost per word match
-            }
+            if chunkLower.contains(word) { keywordScore += 0.2 }
         }
         
-        // B. Vector Score
         var vectorScore = 0.0
         if let queryVector = embeddingModel?.vector(for: query),
            let chunkVector = embeddingModel?.vector(for: textChunk) {
-            
             let qFloats = queryVector.map { Float($0) }
             let cFloats = chunkVector.map { Float($0) }
             vectorScore = cosineSimilarity(vectorA: qFloats, vectorB: cFloats)
@@ -151,5 +160,39 @@ class BrainManager {
         let magnitudeA = sqrt(vectorA.map { $0 * $0 }.reduce(0, +))
         let magnitudeB = sqrt(vectorB.map { $0 * $0 }.reduce(0, +))
         return Double(dotProduct / (magnitudeA * magnitudeB))
+    }
+    
+    // --- 5. PATHFINDER (Navigator Feature) ---
+    func findShortestPath(from startID: UUID, to endID: UUID, allItems: [InsightItem]) -> [UUID] {
+        // Build Adjacency Graph
+        var graph: [UUID: [UUID]] = [:]
+        for item in allItems {
+            let neighbors = item.outgoingLinks?.map { $0.targetID } ?? []
+            graph[item.id] = neighbors
+        }
+        
+        // BFS Queue
+        var queue: [[UUID]] = [[startID]]
+        var visited = Set<UUID>()
+        visited.insert(startID)
+        
+        while !queue.isEmpty {
+            let path = queue.removeFirst()
+            let node = path.last!
+            
+            if node == endID { return path } // Found!
+            
+            if let neighbors = graph[node] {
+                for neighbor in neighbors {
+                    if !visited.contains(neighbor) {
+                        visited.insert(neighbor)
+                        var newPath = path
+                        newPath.append(neighbor)
+                        queue.append(newPath)
+                    }
+                }
+            }
+        }
+        return [] // No path found
     }
 }

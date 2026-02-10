@@ -8,16 +8,23 @@ struct InsightDetailView: View {
     @State private var showingCategoryAlert = false
     @State private var newCategory = ""
     
+    // --- SOCRATIC STATE ---
+    @State private var isSocraticMode = false
+    @State private var critiques: [CritiquePoint] = []
+    
+    // --- READER STATE ---
+    @State private var isReaderMode = false
+    
     var body: some View {
-        // --- 1. THE SHIELD WRAPPER ---
         ShieldView(isLocked: $item.isLocked) {
-            ZStack {
+            ZStack(alignment: .trailing) {
                 Color(hex: "0f172a").ignoresSafeArea()
                 
+                // 1. MAIN CONTENT
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         
-                        // HEADER: Title & Category
+                        // HEADER
                         VStack(alignment: .leading) {
                             TextField("Add Title...", text: Binding(
                                 get: { item.title ?? "" },
@@ -28,125 +35,144 @@ struct InsightDetailView: View {
                             .submitLabel(.done)
                             
                             HStack {
-                                // Category Tag
                                 Menu {
                                     Button("Work") { item.category = "Work" }
                                     Button("Personal") { item.category = "Personal" }
-                                    Button("Vitalis Project") { item.category = "Vitalis Project" }
                                     Button("Ideas") { item.category = "Ideas" }
                                     Divider()
-                                    Button("Custom Category...") { showingCategoryAlert = true }
-                                    Button("Clear Category", role: .destructive) { item.category = nil }
+                                    Button("Custom...") { showingCategoryAlert = true }
+                                    Button("Clear", role: .destructive) { item.category = nil }
                                 } label: {
                                     HStack {
                                         Image(systemName: "tag.fill")
                                         Text(item.category ?? "No Category")
                                     }
-                                    .font(.caption).bold()
-                                    .padding(8)
+                                    .font(.caption).bold().padding(8)
                                     .background(item.category != nil ? .blue : .white.opacity(0.1))
-                                    .foregroundStyle(.white)
-                                    .clipShape(Capsule())
+                                    .foregroundStyle(.white).clipShape(Capsule())
                                 }
                                 
-                                // LOCATION TAG
                                 if let loc = item.locationLabel {
                                     HStack {
                                         Image(systemName: "location.fill")
                                         Text(loc)
                                     }
-                                    .font(.caption).bold()
-                                    .padding(8)
+                                    .font(.caption).bold().padding(8)
                                     .background(.white.opacity(0.1))
-                                    .foregroundStyle(.white.opacity(0.8))
-                                    .clipShape(Capsule())
+                                    .foregroundStyle(.white.opacity(0.8)).clipShape(Capsule())
                                 }
                             }
                         }
                         
-                        // 1. IMAGE (Only show if it's an Image type)
-                                            if item.type == .image, let filename = item.localFileName, let img = VisionManager.loadImageFromDisk(filename: filename) {
-                                                Image(uiImage: img)
-                                                    .resizable().scaledToFit().cornerRadius(15).shadow(radius: 10)
-                                                    .frame(maxHeight: 300).frame(maxWidth: .infinity)
-                                            }
-                                            
-                                            // 2. ECHO PLAYER (Audio Type)
-                                            // Fix: Removed fixed frame(height: 400) and extra padding to let it fit naturally
-                                            if item.type == .audio, let filename = item.localFileName {
-                                                let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(filename)
-                                                
-                                                if FileManager.default.fileExists(atPath: fileURL.path) {
-                                                    EchoPlayerView(item: item, audioURL: fileURL)
-                                                        .padding(.vertical, 10) // Small breathing room only
-                                                } else {
-                                                    HStack {
-                                                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
-                                                        Text("Audio file missing").foregroundStyle(.gray)
-                                                    }
-                                                    .padding()
-                                                    .background(.white.opacity(0.05))
-                                                    .cornerRadius(10)
-                                                }
-                                            }
-                        // Meta
+                        // MEDIA
+                        if let filename = item.localFileName, item.type == .image, let img = VisionManager.loadImageFromDisk(filename: filename) {
+                            Image(uiImage: img).resizable().scaledToFit().cornerRadius(15).shadow(radius: 10)
+                        }
+                        
+                        // AUDIO PLAYER (Updated)
+                        if item.type == .audio, let filename = item.localFileName {
+                            let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(filename)
+                            if FileManager.default.fileExists(atPath: fileURL.path) {
+                                // Removed background and cornerRadius container logic here
+                                EchoPlayerView(item: item, audioURL: fileURL)
+                                    .frame(height: 300)
+                            }
+                        }
+                        
+                        // CONTENT SWITCHER
                         HStack {
-                            Label(item.type.rawValue.capitalized, systemImage: iconFor(type: item.type))
-                                .font(.caption).padding(8).background(.white.opacity(0.1)).clipShape(Capsule())
-                            Text(item.dateCreated.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption).foregroundStyle(.gray)
+                            Text(isReaderMode ? "Interactive Reader" : "Content Editor")
+                                .font(.headline).foregroundStyle(.white.opacity(0.7))
                             Spacer()
                         }
                         
-                        // Content
-                        Text("Content").font(.headline).foregroundStyle(.white.opacity(0.7))
-                        
-                        TextEditor(text: $item.content)
-                            .scrollContentBackground(.hidden)
-                            .foregroundStyle(.white)
-                            .font(.body)
-                            .frame(minHeight: 150)
-                            .padding()
-                            .background(.white.opacity(0.05))
-                            .cornerRadius(10)
-                        
-                        Divider().background(.gray)
-                        
-                        // Smart Actions
-                        if let date = detectedDate {
-                            smartActionView(date: date)
+                        if isReaderMode {
+                            RecursiveReader(fullContent: item.content)
+                                .frame(minHeight: 400)
+                                .transition(.opacity)
+                        } else {
+                            TextEditor(text: $item.content)
+                                .scrollContentBackground(.hidden)
+                                .foregroundStyle(.white)
+                                .font(.body)
+                                .frame(minHeight: 150)
+                                .padding()
+                                .background(.white.opacity(0.05))
+                                .cornerRadius(10)
+                                .onChange(of: item.content) {
+                                    if isSocraticMode { critiques = AraEngine().generateCritique(for: item.content) }
+                                }
+                                .transition(.opacity)
                         }
                         
-                        // Connections
+                        // SMART ACTIONS
+                        if let date = detectedDate { smartActionView(date: date) }
                         if let links = item.outgoingLinks, !links.isEmpty {
                             Text("Linked Knowledge").font(.headline).foregroundStyle(.blue)
-                            ForEach(links, id: \.targetID) { link in
-                                LinkDestination(id: link.targetID, linkInfo: link)
-                            }
+                            ForEach(links, id: \.targetID) { link in LinkDestination(id: link.targetID, linkInfo: link) }
                         }
                     }
                     .padding()
                 }
+                
+                // 2. SOCRATIC OVERLAY
+                if isSocraticMode {
+                    GeometryReader { geo in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 20) {
+                                Spacer().frame(height: 180)
+                                ForEach(critiques) { point in
+                                    HStack {
+                                        Spacer()
+                                        SocraticBubble(point: point)
+                                    }
+                                    .padding(.trailing, 10)
+                                }
+                            }
+                            .frame(width: geo.size.width)
+                        }
+                    }
+                    .allowsHitTesting(true)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(10)
+                }
             }
         }
-        // --- 2. TOOLBAR UPDATES ---
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // LOCK TOGGLE BUTTON
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    withAnimation { isReaderMode.toggle() }
+                }) {
+                    Image(systemName: "book.pages")
+                        .symbolEffect(.bounce, value: isReaderMode)
+                        .foregroundStyle(isReaderMode ? .yellow : .gray)
+                }
+            }
+            
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: toggleSocraticMode) {
+                    Image(systemName: "brain.head.profile")
+                        .symbolEffect(.bounce, value: isSocraticMode)
+                        .foregroundStyle(isSocraticMode ? .purple : .gray)
+                }
+            }
+            
+            // LOCK TOGGLE
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: {
                     if item.isLocked {
-                        // If locked, we can't unlock without Auth (handled by ShieldView tap),
-                        // but if user taps this button on a locked view, trigger auth too.
-                        // However, standard flow is: tap button to LOCK. Tap Shield to UNLOCK.
-                        // So this button mainly serves to LOCK an open note.
-                        // Or if we are already unlocked, we can toggle lock on.
-                        // Let's allow simple toggling for now, assuming user is authenticated if they are viewing this.
-                        withAnimation { item.isLocked = true } // Snap to lock
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        BiometricManager.shared.authenticate(reason: "Unlock Note") { success in
+                            if success {
+                                withAnimation { item.isLocked = false }
+                                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            } else {
+                                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                            }
+                        }
                     } else {
-                        // Locking is instant
                         withAnimation { item.isLocked = true }
                         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
                     }
@@ -165,66 +191,24 @@ struct InsightDetailView: View {
         .onChange(of: item.content) { self.detectedDate = SmartActionManager.shared.detectDates(in: item.content) }
     }
     
-    // Helper for Smart Action
-    func smartActionView(date: Date) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Smart Action Detected").font(.caption).textCase(.uppercase).foregroundStyle(.blue)
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Schedule Event").font(.headline).foregroundStyle(.white)
-                    Text(date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.gray)
-                }
-                Spacer()
-                Button(action: {
-                    SmartActionManager.shared.addEvent(title: item.content, date: date) { success, error in
-                        actionMessage = success ? "Added to Calendar!" : "Error: \(error ?? "Unknown")"
-                        if success { detectedDate = nil }
-                    }
-                }) {
-                    Label("Add", systemImage: "calendar.badge.plus")
-                        .padding(.horizontal, 15).padding(.vertical, 8)
-                        .background(.blue).foregroundStyle(.white).cornerRadius(8)
-                }
-            }
-            .padding().background(.white.opacity(0.1)).cornerRadius(12)
-            if !actionMessage.isEmpty { Text(actionMessage).font(.caption).foregroundStyle(.green) }
+    func toggleSocraticMode() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.spring()) {
+            isSocraticMode.toggle()
+            if isSocraticMode { critiques = AraEngine().generateCritique(for: item.content) }
         }
     }
     
-    func iconFor(type: InsightType) -> String {
-        switch type {
-        case .audio: return "mic.fill"; case .image: return "camera.fill"; case .note: return "doc.text.fill"; case .pdf: return "doc.fill"
-        }
+    func smartActionView(date: Date) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Smart Action").font(.caption).foregroundStyle(.blue)
+            HStack { Text(date.formatted()).foregroundStyle(.white); Spacer(); Button("Add") { /*...*/ }.buttonStyle(.bordered) }
+        }.padding().background(.white.opacity(0.1)).cornerRadius(12)
     }
 }
 
-// Link Destination Helper (Unchanged)
-struct LinkDestination: View {
-    let id: UUID
-    let linkInfo: InsightLink
-    @Query private var items: [InsightItem]
-    init(id: UUID, linkInfo: InsightLink) {
-        self.id = id; self.linkInfo = linkInfo; self._items = Query(filter: #Predicate { $0.id == id })
-    }
-    var body: some View {
-        if let targetItem = items.first {
-            NavigationLink(destination: InsightDetailView(item: targetItem)) {
-                HStack {
-                    Image(systemName: "link").foregroundStyle(.blue)
-                    VStack(alignment: .leading) {
-                        Text(targetItem.title ?? targetItem.content.prefix(30) + "...")
-                            .font(.subheadline).bold().foregroundStyle(.white).lineLimit(1)
-                        HStack {
-                            Text("\(Int(linkInfo.strength * 100))% Match").font(.caption).foregroundStyle(.blue)
-                            Text("• " + linkInfo.reason).font(.caption2).foregroundStyle(.gray)
-                        }
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray)
-                }
-                .padding().frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.05)).cornerRadius(10)
-            }
-        }
-    }
+struct SocraticBubble: View {
+    let point: CritiquePoint; @State private var isExpanded = false
+    var body: some View { ZStack(alignment: .trailing) { if isExpanded { HStack(alignment: .top, spacing: 10) { VStack(alignment: .leading, spacing: 6) { Text(point.type == .evidence ? "Evidence Missing" : (point.type == .logic ? "Logic Gap" : "Clarify")).font(.caption).bold().foregroundStyle(point.type.color).textCase(.uppercase); Text(point.question).font(.caption).foregroundStyle(.black.opacity(0.8)).fixedSize(horizontal: false, vertical: true) }; Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.gray) }.padding(12).frame(width: 240).background(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.95)).shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)).offset(x: -50).transition(.scale(scale: 0.8, anchor: .trailing).combined(with: .opacity)).onTapGesture { UIImpactFeedbackGenerator(style: .light).impactOccurred(); withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { isExpanded = false } }.zIndex(2) }; Circle().fill(point.type.color.gradient).frame(width: 44, height: 44).overlay(Image(systemName: point.type == .evidence ? "magnifyingglass" : (point.type == .logic ? "exclamationmark.triangle" : "bubble.left.and.bubble.right")).font(.caption).bold().foregroundStyle(.white)).shadow(color: point.type.color.opacity(0.5), radius: 6).scaleEffect(isExpanded ? 0.0 : 1.0).opacity(isExpanded ? 0 : 1).onTapGesture { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { isExpanded = true } }.zIndex(1) }.frame(height: 50) }
 }
+struct LinkDestination: View { let id: UUID; let linkInfo: InsightLink; @Query private var items: [InsightItem]; init(id: UUID, linkInfo: InsightLink) { self.id = id; self.linkInfo = linkInfo; self._items = Query(filter: #Predicate { $0.id == id }) }; var body: some View { if let targetItem = items.first { NavigationLink(destination: InsightDetailView(item: targetItem)) { HStack { Image(systemName: "link"); Text(targetItem.title ?? "Note"); Spacer() }.padding().background(.white.opacity(0.05)).cornerRadius(10) } } } }

@@ -10,7 +10,6 @@ enum AppTab {
     case library
     case neural
     case ara
-    case studio
 }
 
 struct ContentView: View {
@@ -33,8 +32,6 @@ struct ContentView: View {
                         LibraryView().transition(.opacity)
                     case .neural:
                         NeuralWebView().transition(.opacity)
-                    case .studio:
-                        StudioView().transition(.opacity)
                     }
                     
                     // Spacer ensures content doesn't get hidden behind the dock
@@ -69,7 +66,7 @@ struct HomeView: View {
     @Query(sort: \InsightItem.dateCreated, order: .reverse) private var items: [InsightItem]
     
     @State private var locationManager = LocationManager.shared
-    @State private var audioManager = AudioManager() // Works with updated class
+    @State private var audioManager = AudioManager()
     
     // UI States
     @State private var showCamera = false
@@ -80,6 +77,9 @@ struct HomeView: View {
     @State private var showTextInput = false
     @State private var manualText = ""
     @State private var showLatestInsight = true
+    
+    // NEW: Location Privacy State
+    @State private var isLocationEnabled = true
     
     var body: some View {
         VStack(spacing: 30) {
@@ -105,20 +105,24 @@ struct HomeView: View {
             Spacer()
             
             // WIDGET
-            VStack {
+            VStack(spacing: 15) {
                 if isProcessingImage {
                     ProgressView().tint(.white).scaleEffect(1.5).padding()
                     Text("Reading Vision...").foregroundStyle(.white)
                 } else if audioManager.isRecording {
                     Image(systemName: "waveform").symbolEffect(.variableColor.iterative.reversing).font(.system(size: 60)).foregroundStyle(.red.opacity(0.8)).padding()
                     Text("Listening...").foregroundStyle(.white).font(.headline)
-                    Text(audioManager.liveTranscript).foregroundStyle(.white.opacity(0.8)).padding().lineLimit(2) // Now works!
+                    Text(audioManager.liveTranscript).foregroundStyle(.white.opacity(0.8)).padding().lineLimit(2)
                 } else if let latest = items.first, showLatestInsight {
                     ZStack(alignment: .topTrailing) {
                         // Content
                         VStack {
-                            HStack { Text("Latest at"); Text(locationManager.currentLabel).bold().foregroundStyle(.blue) }
-                                .font(.caption).foregroundStyle(.white.opacity(0.6)).padding(.top, 5)
+                            HStack {
+                                Text("Latest at")
+                                // Only show location text if it was actually saved
+                                Text(latest.locationLabel ?? "Unknown").bold().foregroundStyle(.blue)
+                            }
+                            .font(.caption).foregroundStyle(.white.opacity(0.6)).padding(.top, 5)
                             
                             if latest.type == .image, let filename = latest.localFileName, let img = VisionManager.loadImageFromDisk(filename: filename) {
                                 Image(uiImage: img).resizable().scaledToFit().frame(height: 120).cornerRadius(10).padding(.top)
@@ -169,6 +173,33 @@ struct HomeView: View {
                     Text("No Insights Yet").font(.headline).foregroundStyle(.white)
                     Text("Capture audio, text, or images.").font(.caption).foregroundStyle(.white.opacity(0.6))
                 }
+                
+                // --- NEW: LOCATION PRIVACY TOGGLE ---
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    withAnimation { isLocationEnabled.toggle() }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: isLocationEnabled ? "location.fill" : "location.slash.fill")
+                            .font(.caption)
+                            .foregroundStyle(isLocationEnabled ? .green : .white.opacity(0.5))
+                        
+                        Text(isLocationEnabled ? "Location Tagging On" : "Location Hidden")
+                            .font(.caption2).bold()
+                            .foregroundStyle(.white.opacity(0.8))
+                        
+                        // Liquid Indicator
+                        Circle()
+                            .fill(isLocationEnabled ? Color.green : Color.gray)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: isLocationEnabled ? .green : .clear, radius: 4)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(isLocationEnabled ? Color.green.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 1))
+                }
             }
             .frame(maxWidth: .infinity).frame(minHeight: 320)
             .padding(.vertical, 20).liquidGlass().padding(.horizontal)
@@ -178,7 +209,6 @@ struct HomeView: View {
             
             // ACTIONS
             HStack(spacing: 20) {
-                // Text
                 actionButton(icon: "pencil", action: { showTextInput = true })
                     .sheet(isPresented: $showTextInput) {
                         TextInputView(text: $manualText) {
@@ -187,10 +217,8 @@ struct HomeView: View {
                         }
                     }
                 
-                // Audio (UPDATED)
                 Button(action: {
                     let impact = UIImpactFeedbackGenerator(style: .medium); impact.impactOccurred()
-                    // NEW AUDIO SIGNATURE (Now valid because AudioManager is updated)
                     audioManager.toggleRecording { text, url, words, samples in
                         let filename = url?.lastPathComponent
                         saveAudioInsight(text: text, filename: filename, words: words, samples: samples)
@@ -199,13 +227,11 @@ struct HomeView: View {
                     Image(systemName: audioManager.isRecording ? "stop.fill" : "mic.fill").font(.title2).frame(width: 60, height: 60).foregroundStyle(.white).background(audioManager.isRecording ? .red.opacity(0.8) : .clear).clipShape(Circle()).liquidGlass(cornerRadius: 30)
                 }
                 
-                // Camera
                 actionButton(icon: "camera.fill", action: { showCamera = true })
                     .sheet(isPresented: $showCamera, onDismiss: processcapturedImage) {
                         CameraView(selectedImage: $capturedImage)
                     }
                 
-                // PDF
                 actionButton(icon: "doc.text.fill", action: { showDocPicker = true })
                     .fileImporter(isPresented: $showDocPicker, allowedContentTypes: [.pdf]) { result in
                         if let url = try? result.get() {
@@ -221,7 +247,6 @@ struct HomeView: View {
     }
     
     // --- PROCESSING FUNCTIONS ---
-    
     func processcapturedImage() {
         guard let image = capturedImage else { return }
         isProcessingImage = true
@@ -236,9 +261,7 @@ struct HomeView: View {
         guard let pdf = PDFDocument(url: url) else { return }
         var fullText = ""
         for i in 0..<pdf.pageCount {
-            if let page = pdf.page(at: i) {
-                fullText += (page.string ?? "") + "\n"
-            }
+            if let page = pdf.page(at: i) { fullText += (page.string ?? "") + "\n" }
         }
         let filename = url.lastPathComponent
         saveInsight(text: fullText.trimmingCharacters(in: .whitespacesAndNewlines), type: .pdf, localFileName: filename)
@@ -246,11 +269,12 @@ struct HomeView: View {
     
     // --- SAVING FUNCTIONS ---
     
-    // 1. General Saver
     func saveInsight(text: String, type: InsightType, localFileName: String? = nil) {
-        let lat = LocationManager.shared.currentLocation?.coordinate.latitude
-        let long = LocationManager.shared.currentLocation?.coordinate.longitude
-        let locLabel = LocationManager.shared.currentLabel
+        // Privacy Check
+        let lat = isLocationEnabled ? LocationManager.shared.currentLocation?.coordinate.latitude : nil
+        let long = isLocationEnabled ? LocationManager.shared.currentLocation?.coordinate.longitude : nil
+        let locLabel = isLocationEnabled ? LocationManager.shared.currentLabel : nil
+        
         let sentiment = SentimentManager.shared.analyzeSentiment(text: text)
         
         let newItem = InsightItem(
@@ -272,11 +296,12 @@ struct HomeView: View {
         }
     }
     
-    // 2. Specific Audio Saver (Now Valid)
     func saveAudioInsight(text: String, filename: String?, words: [TranscriptWord], samples: [Float]) {
-        let lat = LocationManager.shared.currentLocation?.coordinate.latitude
-        let long = LocationManager.shared.currentLocation?.coordinate.longitude
-        let locLabel = LocationManager.shared.currentLabel
+        // Privacy Check
+        let lat = isLocationEnabled ? LocationManager.shared.currentLocation?.coordinate.latitude : nil
+        let long = isLocationEnabled ? LocationManager.shared.currentLocation?.coordinate.longitude : nil
+        let locLabel = isLocationEnabled ? LocationManager.shared.currentLabel : nil
+        
         let sentiment = SentimentManager.shared.analyzeSentiment(text: text)
         
         let newItem = InsightItem(
@@ -286,8 +311,8 @@ struct HomeView: View {
             category: "Audio",
             localFileName: filename,
             lat: lat, long: long, locLabel: locLabel, sentiment: sentiment,
-            transcriptWords: words, // Now exists on Init
-            waveformSamples: samples // Now exists on Init
+            transcriptWords: words,
+            waveformSamples: samples
         )
         
         modelContext.insert(newItem)
@@ -311,7 +336,7 @@ struct HomeView: View {
     }
 }
 
-// LIQUID DOCK & ITEM (No changes needed)
+// LIQUID DOCK (Updated)
 struct LiquidDock: View {
     @Binding var selectedTab: AppTab
     var body: some View {
@@ -333,7 +358,7 @@ struct LiquidDock: View {
                 }
             }
             
-            DockItem(icon: "paintpalette.fill", tab: .studio, selected: selectedTab) { withAnimation(.spring()) { selectedTab = .studio } }
+            // Removed Studio Button from here
             DockItem(icon: "dot.radiowaves.left.and.right", tab: .neural, selected: selectedTab) { withAnimation(.spring()) { selectedTab = .neural } }
         }
         .padding(.vertical, 15).padding(.horizontal, 25).background(.ultraThinMaterial).clipShape(Capsule())

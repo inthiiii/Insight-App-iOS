@@ -14,6 +14,8 @@ extension CGSize {
 
 struct StudioView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) var dismiss // For Back Button
+    
     @Query private var allItems: [InsightItem]
     @Query private var allZones: [InsightZone]
     @Query private var drawings: [InsightDrawing]
@@ -27,7 +29,7 @@ struct StudioView: View {
     @State private var tempZoom: CGFloat = 1.0
     
     // --- INTERACTION MODES ---
-    @State private var isDrawMode = false
+    // Removed isDrawMode as per request
     @State private var isLinkingMode = false // "The Loom"
     @State private var linkStartID: UUID?
     @State private var linkCurrentPoint: CGPoint?
@@ -43,8 +45,7 @@ struct StudioView: View {
     
     // --- UI STATE ---
     @State private var showAddSheet = false
-    @State private var showZoneAlert = false
-    @State private var newZoneTitle = ""
+    // Removed showZoneAlert as per request
     
     // NEW: Board Description
     @AppStorage("studioTitle") private var boardTitle = "Untitled Project"
@@ -103,22 +104,13 @@ struct StudioView: View {
                         }
                 }
                 
-                // B. PENCILKIT LAYER (The Ink) - Fixed Transparency
-                if isDrawMode {
-                    PencilKitLayer(canvasView: $canvasView, onSave: saveDrawing)
+                // B. PENCILKIT LAYER (Viewing Only - Editing Removed per request)
+                if let data = drawings.first?.data, let image = try? PKDrawing(data: data).image(from: CGRect(x: 0, y: 0, width: 5000, height: 5000), scale: 1.0) {
+                    Image(uiImage: image)
                         .frame(width: 5000, height: 5000)
                         .scaleEffect(zoom * tempZoom)
                         .offset(currentPan)
-                        // Allow drawing, but block card touches underneath when drawing
-                } else {
-                    // Static image optimization
-                    if let data = drawings.first?.data, let image = try? PKDrawing(data: data).image(from: CGRect(x: 0, y: 0, width: 5000, height: 5000), scale: 1.0) {
-                        Image(uiImage: image)
-                            .frame(width: 5000, height: 5000)
-                            .scaleEffect(zoom * tempZoom)
-                            .offset(currentPan)
-                            .allowsHitTesting(false)
-                    }
+                        .allowsHitTesting(false)
                 }
                 
                 // C. CONNECTIONS
@@ -198,36 +190,47 @@ struct StudioView: View {
             .offset(currentPan)
             .gesture(
                 SimultaneousGesture(
-                    DragGesture().onChanged { val in if !isLinkingMode && !isDrawMode { tempPanOffset = val.translation } }
-                        .onEnded { val in if !isLinkingMode && !isDrawMode { panOffset += val.translation; tempPanOffset = .zero } },
+                    DragGesture().onChanged { val in if !isLinkingMode { tempPanOffset = val.translation } }
+                        .onEnded { val in if !isLinkingMode { panOffset += val.translation; tempPanOffset = .zero } },
                     MagnificationGesture().onChanged { val in tempZoom = val }.onEnded { val in zoom *= val; tempZoom = 1.0 }
                 )
             )
             
             // 3. HUD
             VStack {
+                // TOP CONTROLS
                 HStack(alignment: .top) {
-                    VStack(alignment: .leading) {
-                        TextField("Project Title", text: $boardTitle).font(.system(size: 30, weight: .bold, design: .serif)).foregroundStyle(.white)
-                        TextField("Description", text: $boardDesc).font(.caption).foregroundStyle(.white.opacity(0.7))
+                    
+                    // 1. BACK BUTTON (New)
+                    Button(action: {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        dismiss()
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.title2).bold()
+                            .foregroundStyle(.white)
+                            .padding(12)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
                     }
+                    
+                    // 2. TEXT FIELDS (Expanded)
+                    VStack(alignment: .leading) {
+                        TextField("Project Title", text: $boardTitle)
+                            .font(.system(size: 30, weight: .bold, design: .serif))
+                            .foregroundStyle(.white)
+                        
+                        // Expanded Description
+                        TextField("Description", text: $boardDesc, axis: .vertical)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(3...10) // Allows growth
+                    }
+                    .padding(.leading, 10)
+                    
                     Spacer()
                     
-                    // Toggle Draw
-                    Button(action: { isDrawMode.toggle() }) {
-                        Image(systemName: isDrawMode ? "pencil.circle.fill" : "pencil.circle")
-                            .font(.title2).foregroundStyle(isDrawMode ? .yellow : .white)
-                            .padding(10).background(.ultraThinMaterial).clipShape(Circle())
-                    }
-                    
-                    // Add Zone
-                    Button(action: { showZoneAlert = true }) {
-                        Image(systemName: "square.dashed")
-                            .font(.title2).foregroundStyle(.white)
-                            .padding(10).background(.ultraThinMaterial).clipShape(Circle())
-                    }
-                    
-                    // Recenter
+                    // 3. RECENTER BUTTON (Kept)
                     Button(action: recenterCanvas) {
                         Image(systemName: "scope")
                             .font(.title2).foregroundStyle(.white)
@@ -238,25 +241,26 @@ struct StudioView: View {
                 
                 Spacer()
                 
+                // BOTTOM CONTROLS
                 HStack {
                     Spacer()
+                    // ADD BUTTON
                     Button(action: { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); showAddSheet = true }) {
                         Image(systemName: "plus").font(.title).foregroundStyle(.white).frame(width: 60, height: 60).background(Color.blue).clipShape(Circle()).shadow(color: .blue.opacity(0.5), radius: 10, y: 5)
                     }
-                    .padding(.bottom, 100).padding(.trailing, 20)
+                    .padding(.bottom, 50).padding(.trailing, 20)
                 }
             }
         }
         .navigationTitle("").toolbar(.hidden)
         .sheet(isPresented: $showAddSheet) { StudioAddSheet(items: allItems).presentationDetents([.medium, .large]) }
-        .alert("New Zone", isPresented: $showZoneAlert) {
-            TextField("Zone Name", text: $newZoneTitle)
-            Button("Add") { addZone() }
-            Button("Cancel", role: .cancel) { }
-        }
         .onAppear {
             if let saved = drawings.first?.data {
                 try? canvasView.drawing = PKDrawing(data: saved)
+            }
+            // Auto-Center on Open
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                recenterCanvas()
             }
         }
     }
@@ -278,12 +282,7 @@ struct StudioView: View {
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
     }
     
-    func addZone() {
-        let center = getScreenCenterWorldPos()
-        let zone = InsightZone(title: newZoneTitle.isEmpty ? "Zone" : newZoneTitle, x: center.x, y: center.y)
-        modelContext.insert(zone)
-        newZoneTitle = ""
-    }
+    // (Removed addZone function)
     
     func checkZoneDrop(item: InsightItem) {
         let itemPos = CGPoint(x: item.canvasX ?? 0, y: item.canvasY ?? 0)
@@ -316,13 +315,6 @@ struct StudioView: View {
         )
     }
     
-    func saveDrawing() {
-        let data = canvasView.drawing.dataRepresentation()
-        if let existing = drawings.first { existing.data = data }
-        else { modelContext.insert(InsightDrawing(data: data)) }
-        try? modelContext.save()
-    }
-    
     func recenterCanvas() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
@@ -353,29 +345,5 @@ struct StudioView: View {
             panOffset = CGSize(width: screenCenter.x - contentCenter.x, height: screenCenter.y - contentCenter.y)
             tempPanOffset = .zero
         }
-    }
-}
-
-// Wrapper for PencilKit (Fixed Transparency)
-struct PencilKitLayer: UIViewRepresentable {
-    @Binding var canvasView: PKCanvasView
-    var onSave: () -> Void
-    
-    func makeUIView(context: Context) -> PKCanvasView {
-        canvasView.drawingPolicy = .anyInput
-        canvasView.backgroundColor = .clear // <--- FIX 3
-        canvasView.isOpaque = false         // <--- FIX 3
-        canvasView.delegate = context.coordinator
-        return canvasView
-    }
-    
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    
-    class Coordinator: NSObject, PKCanvasViewDelegate {
-        var parent: PencilKitLayer
-        init(_ parent: PencilKitLayer) { self.parent = parent }
-        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) { parent.onSave() }
     }
 }
